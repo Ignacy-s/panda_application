@@ -45,6 +45,30 @@ pipeline {
         }
       }     
     }
+
+    stage('Run Terraform') {
+      steps {
+        dir('infrastructure/terraform') {
+          sh 'terraform init && terraform apply -auto-approve'
+        }
+      }
+    }
+    stage('Copy Ansible Role') {
+      steps {
+        sh '''
+        cp -r infrastructure/ansibe/panda/ \
+          /etc/ansible/roles/
+           '''
+      }
+    }
+    stage('Run Ansible') {
+      steps {
+        dir('infrastructure/ansible') {
+          sh 'chmod 600 ../id_ed25519_aws-nopass'
+          sh 'ansible-playbook -i ./inventory playbook.yml'
+        }
+      }
+    }
   }
   post {
     always {  
