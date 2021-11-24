@@ -40,16 +40,25 @@ pipeline {
     }
     stage('Deploy jar to artifactory') {
       steps {
-        configFileProvider([configFile(fileId: '160a5d03-2ee5-4326-ac8e-1dd23fa81867', variable: 'MAVEN_GLOBAL_SETTINGS')]) {
+        configFileProvider([configFile(fileId: '5cc99d94-ac82-447e-9411-ad6e5e3f900d', variable: 'MAVEN_GLOBAL_SETTINGS')]) {
           sh "mvn -s $MAVEN_GLOBAL_SETTINGS deploy -Dmaven.test.skip=true -e"
         }
       }     
     }
-
     stage('Run Terraform') {
       steps {
         dir('infrastructure/terraform') {
-          sh 'terraform init && terraform apply -auto-approve'
+          withCredentials(
+            [file(credentialsId: 'ssh-aws-ed25519-nopass',
+                  variable: 'ssh-key-igi-aws')]) {
+            sh "cp \$terraformpanda ../ssh-aws-ed25519-nopass"
+          }
+          withCredentials(
+            [[$class: 'AmazonWebServicesCredentialsBinding',
+              credentialsId: 'igi-almost-root']] {
+              sh 'terraform init && terraform apply -auto-approve'
+            }
+          )
         }
       }
     }
