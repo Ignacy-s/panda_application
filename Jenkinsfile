@@ -5,10 +5,12 @@ pipeline {
   tools {
     // Install the Maven version configured as "M3" and add it to the path.
     maven "M3"
+    terraform 'Terraform'
   }
   environment {
     IMAGE = readMavenPom().getArtifactId()
     VERSION = readMavenPom().getVersion()
+    ANSIBLE = tool name: 'Ansible', type: 'com.cloudbees.jenkins.plugins.customtools.CustomTool'
   }
   stages {
     stage('Clear running apps') {
@@ -25,57 +27,49 @@ pipeline {
     }   
     stage('Build Docker image'){
       steps {
-        sh "mvn package -Pdocker"
+        sh "mvn package -Pdocker -Dmaven.test.skip=true"
       }
     }
     stage('Run Docker app') {
       steps {
-        sh "docker run -d -p 0.0.0.0:8080:8080 --name pandaapp ${IMAGE}:${VERSION}"
+        sh "docker run -d -p 0.0.0.0:8080:8080 --name pandaapp -t ${IMAGE}:${VERSION}"
       }
     }
-    stage('Test Selenium') {
-      steps {
-        sh "mvn test -Pselenium"
-      }
-    }
+    /*
+     stage('Test Selenium') {
+     steps {
+     sh "mvn test -Pselenium"
+   }
+   }
+     */
     stage('Deploy jar to artifactory') {
       steps {
-        configFileProvider([configFile(fileId: '5cc99d94-ac82-447e-9411-ad6e5e3f900d', variable: 'MAVEN_GLOBAL_SETTINGS')]) {
+        configFileProvider([configFile(fileId: '160a5d03-2ee5-4326-ac8e-1dd23fa81867', variable: 'MAVEN_GLOBAL_SETTINGS')]) {
           sh "mvn -s $MAVEN_GLOBAL_SETTINGS deploy -Dmaven.test.skip=true -e"
         }
       }     
     }
-    stage('Run Terraform') {
+    stage('Run terraform') {
       steps {
-        dir('infrastructure/terraform') {
-          withCredentials(
-            [file(credentialsId: 'ssh-aws-ed25519-nopass',
-                  variable: 'ssh-key-igi-aws')]) {
-            sh "cp \$terraformpanda ../ssh-aws-ed25519-nopass"
+        dir('infrastructure/terraform') { 
+          withCredentials([file(credentialsId: 'ssh-aws-ed25519-nopass', variable: 'terraformpanda')]) {
+            sh "cp \$terraformpanda ../panda.pem"
+            sh 'terraform init && terraform apply -auto-approve -var-file panda.tfvars'
           }
-          withCredentials(
-            [[$class: 'AmazonWebServicesCredentialsBinding',
-              credentialsId: 'igi-almost-root']] {
-              sh 'terraform init && terraform apply -auto-approve'
-            }
-          )
-        }
+        } 
       }
     }
-    stage('Copy Ansible Role') {
+    stage('Copy Ansible role') {
       steps {
-        sh '''
-        cp -r infrastructure/ansibe/panda/ \
-          /etc/ansible/roles/
-           '''
+        sh 'cp -r infrastructure/ansible/panda/ /etc/ansible/roles/'
       }
     }
     stage('Run Ansible') {
       steps {
-        dir('infrastructure/ansible') {
+        dir('infrastructure/ansible') { 
           sh 'chmod 600 ../id_ed25519_aws-nopass'
           sh 'ansible-playbook -i ./inventory playbook.yml'
-        }
+        } 
       }
     }
   }
